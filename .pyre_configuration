@@ -1,0 +1,9 @@
+{
+  "source_directories": [
+    "app"
+  ],
+  "taint_models_path": [
+    "stubs/taint"
+  ],
+  "python_version": "3.10"
+}
