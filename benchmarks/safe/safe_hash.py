@@ -1,8 +1,6 @@
 import hashlib
 import logging
-
-def get_secret():
-    return "api-key-123"
+from helper import get_secret
 
 def main():
     token = get_secret()

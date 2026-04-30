@@ -1,10 +1,5 @@
 import logging
-
-def get_secret():
-    return "api-key-123"
-
-def redact(value):
-    return "[REDACTED]"
+from helper import get_secret, redact
 
 def main():
     token = get_secret()
