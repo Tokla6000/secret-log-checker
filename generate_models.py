@@ -15,17 +15,24 @@ SOURCE_KEYWORDS = (
     "private_key",
 )
 
-EXCLUDED_HINTS = (
+SOURCE_EXCLUDED_HINTS = (
     "non_secret",
     "safe",
+)
+
+SANITIZER_KEYWORDS = (
     "mask",
     "redact",
     "hash",
     "sanitize",
+    "anonymize",
+    "scrub",
 )
 
 SCAN_ROOTS = (Path("app"), Path("benchmarks"))
-OUTPUT_PATH = Path("stubs/taint/secrets_to_logs/generated_models.pysa")
+BASE_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/base_models.pysa")
+GENERATED_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/generated_models.pysa")
+MERGED_MODELS_PATH = Path("stubs/taint/secrets_to_logs/models.pysa")
 
 
 def module_name_from_path(path: Path, root: Path) -> str:
@@ -36,30 +43,86 @@ def module_name_from_path(path: Path, root: Path) -> str:
 def is_suspicious(name: str) -> bool:
     lowered_name = name.lower()
     return any(keyword in lowered_name for keyword in SOURCE_KEYWORDS) and not any(
-        excluded_hint in lowered_name for excluded_hint in EXCLUDED_HINTS
+        excluded_hint in lowered_name for excluded_hint in SOURCE_EXCLUDED_HINTS
     )
 
 
-def collect_function_models(tree: ast.AST, module_name: str) -> list[str]:
-    models: list[str] = []
+def is_sanitizer(name: str) -> bool:
+    lowered_name = name.lower()
+    return any(keyword in lowered_name for keyword in SANITIZER_KEYWORDS)
+
+
+def build_sanitizer_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    args = node.args
+    positional = [*args.posonlyargs, *args.args]
+
+    target_name = None
+    for argument in positional:
+        if argument.arg not in {"self", "cls"}:
+            target_name = argument.arg
+            break
+
+    if target_name is None and positional:
+        target_name = positional[0].arg
+
+    defaults_start = len(positional) - len(args.defaults)
+    parts: list[str] = []
+
+    for index, argument in enumerate(positional):
+        rendered = argument.arg
+        if argument.arg == target_name:
+            rendered = f"{argument.arg}: Sanitize[TaintSource[Secret]]"
+        if index >= defaults_start:
+            rendered = f"{rendered}=..."
+        parts.append(rendered)
+
+    if args.vararg:
+        parts.append(f"*{args.vararg.arg}")
+    elif args.kwonlyargs:
+        parts.append("*")
+
+    for keyword_only, default in zip(args.kwonlyargs, args.kw_defaults):
+        rendered = keyword_only.arg
+        if default is not None:
+            rendered = f"{rendered}=..."
+        parts.append(rendered)
+
+    if args.kwarg:
+        parts.append(f"**{args.kwarg.arg}")
+
+    return ", ".join(parts)
+
+
+def collect_function_models(tree: ast.AST, module_name: str) -> tuple[list[str], list[str]]:
+    source_models: list[str] = []
+    sanitizer_models: list[str] = []
 
     def visit_body(body: Iterable[ast.stmt], class_prefix: tuple[str, ...] = ()) -> None:
         for node in body:
             if isinstance(node, ast.ClassDef):
                 visit_body(node.body, class_prefix + (node.name,))
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualified_name = ".".join((module_name, *class_prefix, node.name))
+
+                if is_sanitizer(node.name):
+                    parameters = build_sanitizer_parameters(node)
+                    sanitizer_models.append(
+                        f"def {qualified_name}({parameters}): ..."
+                    )
+                    continue
+
                 if is_suspicious(node.name):
-                    qualified_name = ".".join((module_name, *class_prefix, node.name))
-                    models.append(f"def {qualified_name}() -> TaintSource[Secret]: ...")
+                    source_models.append(f"def {qualified_name}() -> TaintSource[Secret]: ...")
 
     if isinstance(tree, ast.Module):
         visit_body(tree.body)
 
-    return models
+    return source_models, sanitizer_models
 
 
-def scan_roots(roots: Iterable[Path]) -> list[str]:
-    generated_models: set[str] = set()
+def scan_roots(roots: Iterable[Path]) -> tuple[list[str], list[str]]:
+    generated_source_models: set[str] = set()
+    generated_sanitizer_models: set[str] = set()
 
     for root in roots:
         if not root.exists():
@@ -72,30 +135,95 @@ def scan_roots(roots: Iterable[Path]) -> list[str]:
             module_name = module_name_from_path(path, root)
             tree = ast.parse(path.read_text(), filename=str(path))
 
-            for model in collect_function_models(tree, module_name):
-                generated_models.add(model)
+            source_models, sanitizer_models = collect_function_models(tree, module_name)
+            for model in source_models:
+                generated_source_models.add(model)
+            for model in sanitizer_models:
+                generated_sanitizer_models.add(model)
 
-    return sorted(generated_models)
+    return sorted(generated_source_models), sorted(generated_sanitizer_models)
 
 
-def write_models(models: list[str], output_path: Path = OUTPUT_PATH) -> None:
+def write_generated_models(
+    source_models: list[str],
+    sanitizer_models: list[str],
+    output_path: Path = GENERATED_MODELS_PATH,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     header = [
         "# Auto-generated by generate_models.py. Do not edit manually.",
-        "# Source-like function names are modeled as Secret taint sources.",
+        "# Source-like names become Secret sources; sanitizer-like names become sanitizers.",
         "",
     ]
-    body = models if models else ["# No suspicious source functions were found."]
+    body: list[str] = []
+    body.append("# Generated source models")
+    if source_models:
+        body.extend(source_models)
+    else:
+        body.append("# No suspicious source functions were found.")
+
+    body.append("")
+    body.append("# Generated sanitizer models")
+    if sanitizer_models:
+        body.extend(sanitizer_models)
+    else:
+        body.append("# No suspicious sanitizer functions were found.")
+
     output_path.write_text("\n".join(header + body) + "\n")
 
 
-def main() -> None:
-    models = scan_roots(SCAN_ROOTS)
-    write_models(models)
+def merge_models(
+    base_models_path: Path = BASE_MODELS_PATH,
+    generated_models_path: Path = GENERATED_MODELS_PATH,
+    merged_models_path: Path = MERGED_MODELS_PATH,
+) -> int:
+    if not base_models_path.exists():
+        raise FileNotFoundError(f"Base models file not found: {base_models_path}")
 
-    print(f"Wrote {len(models)} generated source model(s) to {OUTPUT_PATH}")
-    for model in models:
+    base_content = base_models_path.read_text()
+    generated_content = generated_models_path.read_text() if generated_models_path.exists() else ""
+
+    base_lines = base_content.splitlines()
+    generated_lines = generated_content.splitlines()
+
+    base_model_lines = [line for line in base_lines if line.strip().startswith("def ")]
+    generated_model_lines = [line for line in generated_lines if line.strip().startswith("def ")]
+
+    combined_model_lines: list[str] = []
+    seen: set[str] = set()
+
+    for line in [*base_model_lines, *generated_model_lines]:
+        normalized = line.strip()
+        if normalized not in seen:
+            combined_model_lines.append(normalized)
+            seen.add(normalized)
+
+    merged_lines = [
+        "# Auto-generated by generate_models.py. Do not edit manually.",
+        f"# Base models: {base_models_path}",
+        f"# Generated models: {generated_models_path}",
+        "",
+    ]
+    merged_lines.extend(combined_model_lines)
+
+    merged_models_path.parent.mkdir(parents=True, exist_ok=True)
+    merged_models_path.write_text("\n".join(merged_lines) + "\n")
+    return len(combined_model_lines)
+
+
+def main() -> None:
+    source_models, sanitizer_models = scan_roots(SCAN_ROOTS)
+    write_generated_models(source_models, sanitizer_models)
+    merged_count = merge_models()
+
+    print(
+        f"Wrote {len(source_models)} source model(s) and {len(sanitizer_models)} sanitizer model(s) to {GENERATED_MODELS_PATH}"
+    )
+    print(f"Merged base + generated models into {MERGED_MODELS_PATH} ({merged_count} total model(s))")
+    for model in source_models:
+        print(model)
+    for model in sanitizer_models:
         print(model)
 
 

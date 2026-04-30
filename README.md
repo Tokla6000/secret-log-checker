@@ -60,9 +60,15 @@ Prerequisites
 1. Run the analysis
     1. `python run-analysis.py`
 
-## Generated Source Models
+## Model Pipeline
 
-`generate_models.py` scans `app/` and `benchmarks/` for suspicious function names. If a function name contains one of these keywords, its return value is modeled as a secret source:
+`generate_models.py` now manages a three-step model pipeline:
+
+1. Stable hand-written models live in `stubs/taint_templates/secrets_to_logs/base_models.pysa`
+2. Auto-discovered models are written to `stubs/taint_templates/secrets_to_logs/generated_models.pysa`
+3. Both are merged into `stubs/taint/secrets_to_logs/models.pysa` (the single file Pysa reads)
+
+The generator scans `app/` and `benchmarks/` for suspicious function names. If a function name contains one of these keywords, its return value is modeled as a secret source:
 
 - `secret`
 - `token`
@@ -72,4 +78,6 @@ Prerequisites
 - `credential`
 - `private_key`
 
-The script writes the generated models to `stubs/taint/secrets_to_logs/generated_models.pysa`, and `run-analysis.py` calls it automatically before `pyre analyze`.
+Sanitizer-like names (`mask`, `redact`, `hash`, `sanitize`, `anonymize`, `scrub`) are also modeled automatically.
+
+`run-analysis.py` calls `generate_models.py` automatically before `pyre analyze`.
