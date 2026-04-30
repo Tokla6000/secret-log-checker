@@ -4,3 +4,5 @@ __pycache__/
 *.pyc
 .DS_Store
 results/
+stubs/taint_templates/secrets_to_logs/generated_models.pysa
+stubs/taint/secrets_to_logs/models.pysa
