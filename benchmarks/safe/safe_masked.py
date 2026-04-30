@@ -1,10 +1,5 @@
 import logging
-
-def get_secret():
-    return "api-key-123"
-
-def mask_token(value):
-    return value[:2] + "***"
+from helper import get_secret, mask_token
 
 def main():
     token = get_secret()
