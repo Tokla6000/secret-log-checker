@@ -1,4 +1,4 @@
-# Secret Log Checker
+# Secret to Log Checker
 
 A static analysis tool built with Pysa (Pyre) to detect **sensitive data leakage into logging statements** in Python applications.
 
@@ -15,21 +15,36 @@ This project uses **taint analysis** to detect flows where:
 
 ## Project Structure
 ```
-secret-log-checker/
-│
-├── app/
-│   └── example.py              # Example Python code
-│
-├── stubs/
-│   └── taint/
-│       └── secrets_to_logs/
-│           ├── taint.config    # Sources, sinks, rules
-│           └── models.pysa     # Function modeling
-│
-├── .pyre_configuration         # Pyre/Pysa config
-├── .gitignore
-└── README.md
+app/                # example app
+benchmarks/         # evaluation dataset
+  safe/             # safe logging cases
+  unsafe/           # leaking cases
+helper.py           # shared helper functions (sources/sanitizers)
+stubs/taint/        # Pysa models + taint.config
+run-analysis.py     # CLI tool (runs pyre + prints table)
+Dockerfile          # reproducible environment
 ```
+
+## Benchmarks
+
+The `benchmarks/` folder contains curated test cases:
+
+Unsafe (should be detected)
+- direct logging of secrets
+- f-string leaks
+- string concatenation
+- cross-function propagation
+- return-value propagation
+- environment variable leaks
+- dictionary-based flows
+
+Safe (should NOT be detected)
+- constant messages
+- non-secret values
+- redacted values
+- masked values
+- hashed values
+
 ## Setup Instructions
 Prerequisites
 - Python 3.9 – 3.12 (recommended: 3.10)
@@ -42,4 +57,4 @@ Prerequisites
     1. `pip install --upgrade pip setuptools wheel`
     1. `pip install pyre-check`
 1. Run the analysis
-    1. `pyre analyze`
+    1. `python run-analysis.py`
