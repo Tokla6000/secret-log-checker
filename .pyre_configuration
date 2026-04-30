@@ -1,9 +1,7 @@
 {
   "source_directories": [
-    "app"
+    "app",
+    "benchmarks"
   ],
-  "taint_models_path": [
-    "stubs/taint"
-  ],
-  "python_version": "3.10"
+  "taint_models_path": "stubs/taint"
 }
