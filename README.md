@@ -22,6 +22,7 @@ benchmarks/         # evaluation dataset
 helper.py           # shared helper functions (sources/sanitizers)
 stubs/taint/        # Pysa models + taint.config
 run-analysis.py     # CLI tool (runs pyre + prints table)
+generate_models.py  # scans Python files and writes generated Pysa sources
 Dockerfile          # reproducible environment
 ```
 
@@ -58,3 +59,17 @@ Prerequisites
     1. `pip install pyre-check`
 1. Run the analysis
     1. `python run-analysis.py`
+
+## Generated Source Models
+
+`generate_models.py` scans `app/` and `benchmarks/` for suspicious function names. If a function name contains one of these keywords, its return value is modeled as a secret source:
+
+- `secret`
+- `token`
+- `password`
+- `passwd`
+- `api_key`
+- `credential`
+- `private_key`
+
+The script writes the generated models to `stubs/taint/secrets_to_logs/generated_models.pysa`, and `run-analysis.py` calls it automatically before `pyre analyze`.

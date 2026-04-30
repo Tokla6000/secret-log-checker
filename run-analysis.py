@@ -1,9 +1,20 @@
 import json
 import os
 import subprocess
+import sys
+from pathlib import Path
+
+from generate_models import main as generate_models
+
+
+generate_models()
+
+pyre_executable = Path(sys.executable).with_name("pyre")
+if not pyre_executable.exists():
+    raise FileNotFoundError(f"Could not find Pyre executable at {pyre_executable}")
 
 result = subprocess.run(
-    ["pyre", "analyze"],
+    [str(pyre_executable), "analyze"],
     capture_output=True,
     text=True
 )
