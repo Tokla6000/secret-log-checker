@@ -18,7 +18,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-# Extract issues helper function.
+# Extract issues 
 def extract_issues(output: str) -> list[dict[str, object]]:
     start = output.find("[")
     if start == -1:
@@ -51,7 +51,7 @@ def extract_issues(output: str) -> list[dict[str, object]]:
         raise SystemExit(1)
 
 
-# Format output table helper function.
+# Format output table
 def format_table(headers: list[str], rows: list[list[str]]) -> str:
     widths = [len(header) for header in headers]
     for row in rows:
@@ -66,7 +66,7 @@ def format_table(headers: list[str], rows: list[list[str]]) -> str:
     return "\n".join(lines)
 
 
-# Load rule messages helper function.
+# Load rule messages 
 def load_rule_messages(config_path: Path) -> dict[int, str]:
     try:
         data = json.loads(config_path.read_text())
@@ -83,7 +83,7 @@ def load_rule_messages(config_path: Path) -> dict[int, str]:
     return messages
 
 
-# Run pyre analyze helper function.
+# Run pyre analyze 
 def run_pyre_analyze(pyre_executable: Path, cwd: Path | None = None) -> list[dict[str, object]]:
     result = subprocess.run(
         [str(pyre_executable), "analyze"],
@@ -95,7 +95,7 @@ def run_pyre_analyze(pyre_executable: Path, cwd: Path | None = None) -> list[dic
     return extract_issues(output)
 
 
-# Repo analysis helper function.
+# Repo analysis 
 def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
     config_path = repo_path / ".pyre_configuration"
     created_config = False
@@ -155,7 +155,7 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
     print(format_table(headers, rows))
 
 
-# Benchmark analysis helper function.
+# Benchmark analysis 
 def run_benchmarks(pyre_executable: Path) -> None:
     data = run_pyre_analyze(pyre_executable)
     reported_files = set()
