@@ -30,14 +30,38 @@ SANITIZER_KEYWORDS = (
 )
 
 SCAN_ROOTS = (Path("app"), Path("benchmarks"))
-BASE_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/base_models.pysa")
-GENERATED_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/generated_models.pysa")
-MERGED_MODELS_PATH = Path("stubs/taint/secrets_to_logs/models.pysa")
+BASE_MODELS_PATH = Path("pysa-config/base_models.pysa")
+GENERATED_MODELS_PATH = Path("pysa-config/generated_models.pysa")
+MERGED_MODELS_PATH = Path("pysa-config/models.pysa")
+
+SKIP_DIR_NAMES = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".nox",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "dist-packages",
+    "build",
+    "site-packages",
+    "venv",
+}
 
 
 def module_name_from_path(path: Path, root: Path) -> str:
     relative_path = path.relative_to(root).with_suffix("")
     return ".".join(relative_path.parts)
+
+
+def should_skip_path(path: Path, root: Path) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    return any(part in SKIP_DIR_NAMES for part in relative_parts)
 
 
 def is_suspicious(name: str) -> bool:
@@ -129,8 +153,10 @@ def scan_roots(roots: Iterable[Path]) -> tuple[list[str], list[str]]:
             continue
 
         for path in sorted(root.rglob("*.py")):
-            if path.name == "__init__.py":
+            if should_skip_path(path, root):
                 continue
+            # if path.name == "__init__.py":
+            #     continue
 
             module_name = module_name_from_path(path, root)
             tree = ast.parse(path.read_text(), filename=str(path))
@@ -212,8 +238,9 @@ def merge_models(
     return len(combined_model_lines)
 
 
-def main() -> None:
-    source_models, sanitizer_models = scan_roots(SCAN_ROOTS)
+def main(scan_roots_override: Iterable[Path] | None = None) -> None:
+    roots = scan_roots_override or SCAN_ROOTS
+    source_models, sanitizer_models = scan_roots(roots)
     write_generated_models(source_models, sanitizer_models)
     merged_count = merge_models()
 
