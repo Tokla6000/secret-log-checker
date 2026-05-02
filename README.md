@@ -69,7 +69,7 @@ Sanitizer-like names (`mask`, `redact`, `hash`, `sanitize`, `anonymize`, `scrub`
 ### Output format
 
 TODO:
-if user runs "python run-analysis.py --benchmark" we want output like this:
+if user runs "python run-analysis.py --benchmark-cases" we want output like this:
 
 ```
 Static Secret-to-Log Checker Evaluation

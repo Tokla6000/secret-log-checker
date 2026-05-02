@@ -1,5 +1,5 @@
 import logging
-from benchmarks.common import get_secret, hash_secret
+from cases.common import get_secret, hash_secret
 def log_info(x: str) -> None:
     logging.info(x)
 def main() -> None:

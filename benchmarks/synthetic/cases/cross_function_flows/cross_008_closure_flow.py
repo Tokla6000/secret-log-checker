@@ -1,5 +1,5 @@
 import logging
-from benchmarks.common import get_secret
+from cases.common import get_secret
 def outer():
     secret = get_secret()
     def inner():

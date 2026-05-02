@@ -1,7 +1,0 @@
-{
-	"source_directories": [
-		"app",
-		"benchmarks"
-	],
-	"taint_models_path": "pysa-config"
-}
