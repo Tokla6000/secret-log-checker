@@ -1,18 +1,247 @@
-# TODO: add expected results for the synthetic cases
-# example:
+schema_version: 1
+description: benchmark suite for secret-to-log Pysa evaluation.
+
 cases:
-  direct_env_to_log:
-    file: unsafe/direct_env_to_log.py
+
+  # =========================Direct leaks=========================
+
+  direct_001_get_secret_to_log:
+    file: benchmarks/direct_leaks/direct_001_get_secret_to_log.py
     expected_leak: true
-    expected_line: 8
     category: direct
-    source: os.getenv
+    source: get_secret
     sink: logging.info
 
-  sanitized_mask:
-    file: safe/sanitized_mask.py
+  direct_002_api_key_to_print:
+    file: benchmarks/direct_leaks/direct_002_api_key_to_print.py
+    expected_leak: true
+    category: direct
+    source: get_api_key
+    sink: print
+
+  direct_003_password_to_logger_debug:
+    file: benchmarks/direct_leaks/direct_003_password_to_logger_debug.py
+    expected_leak: true
+    category: direct
+    source: get_password
+    sink: logger.debug
+
+  direct_004_os_getenv_token:
+    file: benchmarks/direct_leaks/direct_004_os_getenv_token.py
+    expected_leak: true
+    category: direct
+    source: os.getenv
+    sink: logging.warning
+
+  direct_005_os_environ_password:
+    file: benchmarks/direct_leaks/direct_005_os_environ_password.py
+    expected_leak: true
+    category: direct
+    source: os.environ
+    sink: logging.error
+
+  direct_006_config_accessor_secret:
+    file: benchmarks/direct_leaks/direct_006_config_accessor_secret.py
+    expected_leak: true
+    category: direct
+    source: get_config_value
+    sink: logging.info
+
+  direct_007_settings_attribute:
+    file: benchmarks/direct_leaks/direct_007_settings_attribute.py
+    expected_leak: true
+    category: direct
+    source: Settings.secret_key
+    sink: logging.info
+
+  direct_008_global_secret_name:
+    file: benchmarks/direct_leaks/direct_008_global_secret_name.py
+    expected_leak: true
+    category: direct
+    source: GLOBAL_API_TOKEN
+    sink: logging.info
+
+
+  # =========================String formatting leaks=========================
+
+  fmt_001_fstring:
+    file: benchmarks/string_formatting/fmt_001_fstring.py
+    expected_leak: true
+    category: formatting
+    source: get_token
+    sink: logging.info
+
+  fmt_002_percent_format:
+    file: benchmarks/string_formatting/fmt_002_percent_format.py
+    expected_leak: true
+    category: formatting
+    source: get_password
+    sink: logging.info
+
+  fmt_003_dot_format:
+    file: benchmarks/string_formatting/fmt_003_dot_format.py
+    expected_leak: true
+    category: formatting
+    source: get_api_key
+    sink: logging.info
+
+  fmt_004_concat:
+    file: benchmarks/string_formatting/fmt_004_concat.py
+    expected_leak: true
+    category: formatting
+    source: get_secret
+    sink: logging.info
+
+  fmt_005_join:
+    file: benchmarks/string_formatting/fmt_005_join.py
+    expected_leak: true
+    category: formatting
+    source: get_secret
+    sink: logging.info
+
+  fmt_006_logging_args:
+    file: benchmarks/string_formatting/fmt_006_logging_args.py
+    expected_leak: true
+    category: formatting
+    source: get_secret
+    sink: logging.info
+
+  fmt_007_json_dumps:
+    file: benchmarks/string_formatting/fmt_007_json_dumps.py
+    expected_leak: true
+    category: formatting
+    source: get_secret
+    sink: logging.info
+
+  fmt_008_repr_format:
+    file: benchmarks/string_formatting/fmt_008_repr_format.py
+    expected_leak: true
+    category: formatting
+    source: get_secret
+    sink: logging.info
+
+
+  # =========================Cross-function leaks=========================
+
+  cross_001_return_flow:
+    file: benchmarks/cross_function_flows/cross_001_return_flow.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+  cross_002_argument_flow:
+    file: benchmarks/cross_function_flows/cross_002_argument_flow.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+  cross_003_nested_calls:
+    file: benchmarks/cross_function_flows/cross_003_nested_calls.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+  cross_004_custom_logger_wrapper:
+    file: benchmarks/cross_function_flows/cross_004_custom_logger_wrapper.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.log
+
+  cross_005_audit_wrapper:
+    file: benchmarks/cross_function_flows/cross_005_audit_wrapper.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: audit_log
+
+  cross_006_method_flow:
+    file: benchmarks/cross_function_flows/cross_006_method_flow.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+  cross_007_lambda_flow:
+    file: benchmarks/cross_function_flows/cross_007_lambda_flow.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+  cross_008_closure_flow:
+    file: benchmarks/cross_function_flows/cross_008_closure_flow.py
+    expected_leak: true
+    category: cross_function
+    source: get_secret
+    sink: logging.info
+
+
+  # =========================Sanitized cases=========================
+
+  san_001_redacted:
+    file: benchmarks/sanitized_cases/san_001_redacted.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: redact
+
+  san_002_masked:
+    file: benchmarks/sanitized_cases/san_002_masked.py
     expected_leak: false
     category: sanitizer
     source: get_secret
     sink: logging.info
     sanitizer: mask_token
+
+  san_003_hash_wrapper:
+    file: benchmarks/sanitized_cases/san_003_hash_wrapper.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: hash_secret
+
+  san_004_hashlib_direct:
+    file: benchmarks/sanitized_cases/san_004_hashlib_direct.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: hashlib.sha256
+
+  san_005_length_only:
+    file: benchmarks/sanitized_cases/san_005_length_only.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: length
+
+  san_006_boolean_only:
+    file: benchmarks/sanitized_cases/san_006_boolean_only.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: boolean_check
+
+  san_007_redacted_dict:
+    file: benchmarks/sanitized_cases/san_007_redacted_dict.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: redact
+
+  san_008_hash_before_wrapper:
+    file: benchmarks/sanitized_cases/san_008_hash_before_wrapper.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: hash_secret
