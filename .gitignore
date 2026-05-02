@@ -3,7 +3,6 @@
 __pycache__/
 *.pyc
 .DS_Store
-results/
 
 # generated models
 pysa-config/generated_models.pysa

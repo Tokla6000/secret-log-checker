@@ -1,0 +1,15 @@
+# same as for synthetic but per real world repo
+# example:
+repo: demo-repo
+known_leaks:
+  - id: DEMO001
+    file: app/auth.py
+    line: 42
+    source: os.getenv
+    sink: app.logger.debug
+
+  - id: DEMO002
+    file: app/payments.py
+    line: 76
+    source: get_secret
+    sink: logging.error

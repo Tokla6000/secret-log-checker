@@ -1,2 +1,4 @@
 pyre-check
 textual
+setuptools
+wheel

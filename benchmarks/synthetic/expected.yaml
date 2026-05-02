@@ -1,0 +1,18 @@
+# TODO: add expected results for the synthetic cases
+# example:
+cases:
+  direct_env_to_log:
+    file: unsafe/direct_env_to_log.py
+    expected_leak: true
+    expected_line: 8
+    category: direct
+    source: os.getenv
+    sink: logging.info
+
+  sanitized_mask:
+    file: safe/sanitized_mask.py
+    expected_leak: false
+    category: sanitizer
+    source: get_secret
+    sink: logging.info
+    sanitizer: mask_token
