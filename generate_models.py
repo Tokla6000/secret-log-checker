@@ -30,14 +30,41 @@ SANITIZER_KEYWORDS = (
 )
 
 SCAN_ROOTS = (Path("app"), Path("benchmarks"))
-BASE_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/base_models.pysa")
-GENERATED_MODELS_PATH = Path("stubs/taint_templates/secrets_to_logs/generated_models.pysa")
-MERGED_MODELS_PATH = Path("stubs/taint/secrets_to_logs/models.pysa")
+BASE_MODELS_PATH = Path("pysa-config/base_models.pysa")
+GENERATED_MODELS_PATH = Path("pysa-config/generated_models.pysa")
+MERGED_MODELS_PATH = Path("pysa-config/models.pysa")
+
+SKIP_DIR_NAMES = {
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".tox",
+    ".nox",
+    ".venv",
+    "__pycache__",
+    "dist",
+    "dist-packages",
+    "build",
+    "site-packages",
+    "venv",
+}
 
 
 def module_name_from_path(path: Path, root: Path) -> str:
     relative_path = path.relative_to(root).with_suffix("")
-    return ".".join(relative_path.parts)
+    parts = list(relative_path.parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def should_skip_path(path: Path, root: Path) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    return any(part in SKIP_DIR_NAMES for part in relative_parts)
 
 
 def is_suspicious(name: str) -> bool:
@@ -120,33 +147,65 @@ def collect_function_models(tree: ast.AST, module_name: str) -> tuple[list[str],
     return source_models, sanitizer_models
 
 
-def scan_roots(roots: Iterable[Path]) -> tuple[list[str], list[str]]:
+def collect_global_models(tree: ast.AST, module_name: str) -> list[str]:
+    global_models: list[str] = []
+
+    if not isinstance(tree, ast.Module):
+        return global_models
+
+    for node in tree.body:
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+
+        for target in targets:
+            if not isinstance(target, ast.Name):
+                continue
+            name = target.id
+            if is_suspicious(name):
+                global_models.append(f"{module_name}.{name}: TaintSource[Secret]")
+
+    return global_models
+
+
+def scan_roots(roots: Iterable[Path]) -> tuple[list[str], list[str], list[str]]:
     generated_source_models: set[str] = set()
     generated_sanitizer_models: set[str] = set()
+    generated_global_models: set[str] = set()
 
     for root in roots:
         if not root.exists():
             continue
 
         for path in sorted(root.rglob("*.py")):
-            if path.name == "__init__.py":
+            if should_skip_path(path, root):
                 continue
 
             module_name = module_name_from_path(path, root)
             tree = ast.parse(path.read_text(), filename=str(path))
 
             source_models, sanitizer_models = collect_function_models(tree, module_name)
+            global_models = collect_global_models(tree, module_name)
             for model in source_models:
                 generated_source_models.add(model)
             for model in sanitizer_models:
                 generated_sanitizer_models.add(model)
+            for model in global_models:
+                generated_global_models.add(model)
 
-    return sorted(generated_source_models), sorted(generated_sanitizer_models)
+    return (
+        sorted(generated_source_models),
+        sorted(generated_sanitizer_models),
+        sorted(generated_global_models),
+    )
 
 
 def write_generated_models(
     source_models: list[str],
     sanitizer_models: list[str],
+    global_models: list[str],
     output_path: Path = GENERATED_MODELS_PATH,
 ) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -170,7 +229,26 @@ def write_generated_models(
     else:
         body.append("# No suspicious sanitizer functions were found.")
 
+    body.append("")
+    body.append("# Generated global source models")
+    if global_models:
+        body.extend(global_models)
+    else:
+        body.append("# No suspicious global sources were found.")
+
     output_path.write_text("\n".join(header + body) + "\n")
+
+
+def _is_model_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+    if stripped.startswith("def "):
+        return True
+    if ":" in stripped:
+        before, _ = stripped.split(":", 1)
+        return " " not in before and "(" not in before
+    return False
 
 
 def merge_models(
@@ -187,8 +265,8 @@ def merge_models(
     base_lines = base_content.splitlines()
     generated_lines = generated_content.splitlines()
 
-    base_model_lines = [line for line in base_lines if line.strip().startswith("def ")]
-    generated_model_lines = [line for line in generated_lines if line.strip().startswith("def ")]
+    base_model_lines = [line for line in base_lines if _is_model_line(line)]
+    generated_model_lines = [line for line in generated_lines if _is_model_line(line)]
 
     combined_model_lines: list[str] = []
     seen: set[str] = set()
@@ -212,18 +290,25 @@ def merge_models(
     return len(combined_model_lines)
 
 
-def main() -> None:
-    source_models, sanitizer_models = scan_roots(SCAN_ROOTS)
-    write_generated_models(source_models, sanitizer_models)
+def main(scan_roots_override: Iterable[Path] | None = None) -> None:
+    roots = scan_roots_override or SCAN_ROOTS
+    source_models, sanitizer_models, global_models = scan_roots(roots)
+    write_generated_models(source_models, sanitizer_models, global_models)
     merged_count = merge_models()
 
     print(
-        f"Wrote {len(source_models)} source model(s) and {len(sanitizer_models)} sanitizer model(s) to {GENERATED_MODELS_PATH}"
+        "Wrote "
+        f"{len(source_models)} source model(s), "
+        f"{len(sanitizer_models)} sanitizer model(s), "
+        f"and {len(global_models)} global source model(s) "
+        f"to {GENERATED_MODELS_PATH}"
     )
     print(f"Merged base + generated models into {MERGED_MODELS_PATH} ({merged_count} total model(s))")
     for model in source_models:
         print(model)
     for model in sanitizer_models:
+        print(model)
+    for model in global_models:
         print(model)
 
 
