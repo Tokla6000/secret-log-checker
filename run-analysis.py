@@ -216,6 +216,7 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
             shutil.rmtree(pyre_dir, ignore_errors=True)
 
     issues = data
+    print(json.dumps(issues, indent=2))
     rows = []
     findings: list[dict[str, object]] = []
 
