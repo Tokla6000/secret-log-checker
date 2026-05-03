@@ -1,4 +1,4 @@
-# Secret Log Checker
+# Secret Log Checker for Python Applications
 
 A Python static analysis tool that uses Pyre/Pysa taint analysis to find sensitive values flowing into logging or debug output.
 
@@ -15,21 +15,21 @@ The checker models values such as passwords, tokens, API keys, credentials, and 
 
 ```text
 .
-├── run-analysis.py              
-├── generate_models.py          
-├── requirements.txt             
-├── Dockerfile                   
+├── run-analysis.py
+├── generate_models.py
+├── requirements.txt
+├── Dockerfile
 ├── pysa/
-│   ├── taint.config             
+│   ├── taint.config
 │   └── models/
-│       ├── base_models.pysa    
-│       ├── generated_models.pysa 
-│       └── models.pysa          
+│       ├── base_models.pysa
+│       ├── generated_models.pysa
+│       └── models.pysa
 ├── benchmarks/
-│   ├── cases/                   
-│   └── expected.yaml            
-├── example_repos/                           
-└── results/                     
+│   ├── cases/
+│   └── expected.yaml
+├── example_repos/
+└── results/
 ```
 
 ## Requirements
@@ -37,19 +37,20 @@ The checker models values such as passwords, tokens, API keys, credentials, and 
 - Python 3.10 is recommended
 - `pip`
 
-
 ## Docker Usage
 
-Build the image:
+First, ensure that Docker Desktop or any other local Docker app is running on your device.
+
+To build the image run:
 
 ```bash
-docker build -t secret-log-checker .
+docker build --platform=linux/amd64 -t secret-log-checker .
 ```
 
 Run TUI interface:
 
 ```bash
-docker run --rm -it secret-log-checker tui.py
+docker run --rm -it --platform=linux/amd64 secret-log-checker tui.py
 ```
 
 ## Local Setup
@@ -81,7 +82,6 @@ OR use the handy TUI interface
 ```bash
 python tui.py
 ```
-
 
 ## Output
 
@@ -148,4 +148,6 @@ The benchmark cases live in `benchmarks/cases/` and are grouped into:
 
 Expected classifications are defined in `benchmarks/expected.yaml`.
 
-## Notes
+## AI Declaration
+
+To see how we used AI to help us with this project, please check the [AI Statement](./ai-statement.md).

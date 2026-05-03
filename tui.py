@@ -54,7 +54,6 @@ def matching_directories(value: str) -> tuple[str, list[str]]:
 
 
 class TextMenu(Static, can_focus=True):
-    """Small text-only menu to match the requested terminal mockup."""
 
     class Selected(Message):
         def __init__(self, menu: "TextMenu", index: int) -> None:

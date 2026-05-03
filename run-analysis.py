@@ -342,6 +342,7 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path, source_roots: list
         )
 
     title = "Static Secret-to-Log Checker Report"
+    print()
     print(title)
     print("=" * len(title))
     print()
@@ -535,6 +536,7 @@ def run_benchmark_cases(pyre_executable: Path) -> None:
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
 
     title = "Static Secret-to-Log Checker Evaluation"
+    print()
     print(title)
     print("=" * len(title))
     print()
