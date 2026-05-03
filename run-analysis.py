@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--benchmark-cases",
         action="store_true",
-        help="Run the synthetic benchmark cases.",
+        help="Run the benchmark cases.",
     )
     parser.add_argument(
         "--repo",
@@ -30,7 +31,7 @@ PYSA_ROOT = ROOT_DIR / "pysa"
 PYSA_MODELS_DIR = PYSA_ROOT / "models"
 PYSA_TAINT_CONFIG = PYSA_ROOT / "taint.config"
 
-BENCHMARK_ROOT = ROOT_DIR / "benchmarks" / "synthetic"
+BENCHMARK_ROOT = ROOT_DIR / "benchmarks"
 BENCHMARK_CASES_ROOT = BENCHMARK_ROOT / "cases"
 BENCHMARK_EXPECTED = BENCHMARK_ROOT / "expected.yaml"
 
@@ -142,13 +143,61 @@ def load_rule_messages(config_path: Path) -> dict[int, str]:
 
 # Run pyre analyze 
 def run_pyre_analyze(pyre_executable: Path, cwd: Path | None = None) -> list[dict[str, object]]:
-    result = subprocess.run(
-        [str(pyre_executable), "analyze"],
-        capture_output=True,
-        text=True,
-        cwd=str(cwd) if cwd else None,
-    )
-    return extract_issues(result.stdout, result.stderr)
+    with tempfile.TemporaryDirectory(prefix="secret-log-checker-pysa-") as results_dir:
+        result = subprocess.run(
+            [
+                str(pyre_executable),
+                "analyze",
+                "--save-results-to",
+                results_dir,
+                "--output-format",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(cwd) if cwd else None,
+        )
+        taint_output_path = Path(results_dir) / "taint-output.json"
+        detailed_issues = load_taint_output_issues(taint_output_path)
+        if taint_output_path.exists():
+            return detailed_issues
+        return extract_issues(result.stdout, result.stderr)
+
+
+def analysis_roots_for(repo_path: Path) -> list[Path]:
+    child_roots = [
+        child
+        for child in sorted(repo_path.iterdir())
+        if child.is_dir() and any(child.rglob("*.py"))
+    ]
+    if any(not child.name.isidentifier() for child in child_roots):
+        return child_roots
+    return [repo_path]
+
+
+def load_taint_output_issues(path: Path) -> list[dict[str, object]]:
+    issues: list[dict[str, object]] = []
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return issues
+
+    for line in lines:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(item, dict) or item.get("kind") != "issue":
+            continue
+        data = item.get("data")
+        if not isinstance(data, dict):
+            continue
+        issue = dict(data)
+        filename = issue.get("filename")
+        if isinstance(filename, str) and "path" not in issue:
+            issue["path"] = filename
+        issues.append(issue)
+    return issues
 
 
 def normalize_path(path: Path) -> str:
@@ -185,11 +234,66 @@ def issue_source_sink(issue: dict[str, object]) -> tuple[str, str]:
             name = entry.get("name")
             if isinstance(name, str):
                 sink = name
+    traces = issue.get("traces")
+    if isinstance(traces, list):
+        for trace in traces:
+            if not isinstance(trace, dict):
+                continue
+            trace_name = trace.get("name")
+            trace_leaf = first_trace_leaf(trace, include_port=trace_name == "forward")
+            if trace_name == "forward" and trace_leaf:
+                source = trace_leaf
+            elif trace_name == "backward" and trace_leaf:
+                sink = trace_leaf
+    sink_handle = issue.get("sink_handle")
+    if sink == "?" and isinstance(sink_handle, dict):
+        callee = sink_handle.get("callee")
+        if isinstance(callee, str):
+            sink = callee
     return source, sink
 
 
+def first_trace_leaf(trace: dict[str, object], include_port: bool = False) -> str | None:
+    roots = trace.get("roots")
+    if not isinstance(roots, list):
+        return None
+
+    for root in roots:
+        if not isinstance(root, dict):
+            continue
+        kinds = root.get("kinds")
+        if not isinstance(kinds, list):
+            continue
+        for kind in kinds:
+            if not isinstance(kind, dict):
+                continue
+            leaves = kind.get("leaves")
+            if isinstance(leaves, list):
+                for leaf in leaves:
+                    if not isinstance(leaf, dict):
+                        continue
+                    name = leaf.get("name")
+                    port = leaf.get("port")
+                    if not isinstance(name, str):
+                        continue
+                    name = unwrap_pysa_object_name(name)
+                    if include_port and isinstance(port, str) and port.startswith("leaf:") and port != "leaf:return":
+                        return f"{name}.{port.removeprefix('leaf:')}"
+                    return name
+            kind_name = kind.get("kind")
+            if isinstance(kind_name, str):
+                return unwrap_pysa_object_name(kind_name)
+    return None
+
+
+def unwrap_pysa_object_name(name: str) -> str:
+    if name.startswith("Obj{") and name.endswith("}"):
+        return name[4:-1]
+    return name
+
+
 # Repo analysis 
-def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
+def run_repo_analysis(pyre_executable: Path, repo_path: Path, source_roots: list[Path]) -> None:
     config_path = repo_path / ".pyre_configuration"
     created_config = False
     pyre_dir = repo_path / ".pyre"
@@ -198,7 +302,10 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
     if not config_path.exists():
         models_path = PYSA_ROOT
         config = {
-            "source_directories": ["."],
+            "source_directories": [
+                root.relative_to(repo_path).as_posix() if root != repo_path else "."
+                for root in source_roots
+            ],
             "taint_models_path": str(models_path),
         }
         config_path.write_text(json.dumps(config, indent=2) + "\n")
@@ -216,7 +323,6 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path) -> None:
             shutil.rmtree(pyre_dir, ignore_errors=True)
 
     issues = data
-    print(json.dumps(issues, indent=2))
     rows = []
     findings: list[dict[str, object]] = []
 
@@ -432,7 +538,7 @@ def run_benchmark_cases(pyre_executable: Path) -> None:
     print(title)
     print("=" * len(title))
     print()
-    print("Dataset: Synthetic Benchmark")
+    print("Dataset: Benchmark Cases")
     print()
     headers = [
         "Category",
@@ -456,7 +562,7 @@ def run_benchmark_cases(pyre_executable: Path) -> None:
 
     results = {
         "mode": "benchmark",
-        "dataset": "synthetic",
+        "dataset": "benchmark_cases",
         "summary": {
             "tp": tp,
             "fp": fp,
@@ -493,8 +599,10 @@ def main() -> None:
             raise SystemExit(1)
 
     if repo_path:
-        generate_models(scan_roots_override=[repo_path])
+        source_roots = analysis_roots_for(repo_path)
+        generate_models(scan_roots_override=source_roots)
     else:
+        source_roots = []
         generate_models()
 
     pyre_executable = Path(sys.executable).with_name("pyre")
@@ -502,7 +610,7 @@ def main() -> None:
         raise FileNotFoundError(f"Could not find Pyre executable at {pyre_executable}")
 
     if repo_path:
-        run_repo_analysis(pyre_executable, repo_path)
+        run_repo_analysis(pyre_executable, repo_path, source_roots)
     else:
         run_benchmark_cases(pyre_executable)
 

@@ -68,7 +68,7 @@ SENSITIVE_KEY_TOKENS = {
 SENSITIVE_KEY_PATTERN = re.compile(r"[^a-z0-9]+")
 INPUT_NAME_PATTERN = re.compile(r"[^a-z0-9]+")
 
-BENCHMARK_CASES_ROOT = Path("benchmarks/synthetic/cases")
+BENCHMARK_CASES_ROOT = Path("benchmarks/cases")
 SCAN_ROOTS = (BENCHMARK_CASES_ROOT,)
 BASE_MODELS_PATH = Path("pysa/models/base_models.pysa")
 GENERATED_MODELS_PATH = Path("pysa/models/generated_models.pysa")
@@ -98,8 +98,12 @@ def collect_attribute_models(tree: ast.AST, module_name: str) -> list[str]:
             if isinstance(node, ast.ClassDef):
                 class_name = ".".join((module_name, *class_prefix, node.name))
 
-                for stmt in ast.walk(node):
-                    if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                for method in node.body:
+                    if not isinstance(method, ast.FunctionDef) or method.name != "__init__":
+                        continue
+                    for stmt in ast.walk(method):
+                        if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                            continue
                         targets = []
                         if isinstance(stmt, ast.Assign):
                             targets = list(stmt.targets)
@@ -126,7 +130,7 @@ def collect_attribute_models(tree: ast.AST, module_name: str) -> list[str]:
 
 def module_name_from_path(path: Path, root: Path, module_prefix: str = "") -> str:
     relative_path = path.relative_to(root).with_suffix("")
-    parts = list(relative_path.parts)
+    parts = [part for part in relative_path.parts if part.isidentifier()]
     if parts and parts[-1] == "__init__":
         parts = parts[:-1]
     module_name = ".".join(parts)
