@@ -1,1 +1,0 @@
-{"filename_spec":"taint-output.json","root":"/home/tokla/secret-log-checker/benchmarks/seeded/demo-repo/test-repo","tool":"pysa","version":"7873fbf76ce7a1f3b02a527f4e2ee8ac50ca6843","stats":{"skipped_overrides":[],"model_verification_errors":[]},"codes":{"5001":"Secret logged to output"},"cache":{"shared_memory_status":"Disabled","save_cache":false}}
