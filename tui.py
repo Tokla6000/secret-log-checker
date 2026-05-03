@@ -240,7 +240,7 @@ class AboutScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="root"):
             yield Static(TITLE, id="title")
-            yield Static("TODO: add project description here.", id="about_body")
+            yield Static("A static analysis tool built with Pysa (Pyre) to detect sensitive data leakage into logging statements in Python applications.", id="about_body")
             yield TextMenu(["go back"], id="about_menu")
             yield Static(FOOTER, classes="footer")
 

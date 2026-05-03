@@ -1,124 +1,152 @@
-# Secret to Log Checker
+# Secret Log Checker
 
-A static analysis tool built with Pysa (Pyre) to detect **sensitive data leakage into logging statements** in Python applications.
+A Python static analysis tool that uses Pyre/Pysa taint analysis to find sensitive values flowing into logging or debug output.
 
----
+The checker models values such as passwords, tokens, API keys, credentials, and secrets as taint sources. It reports when those values can reach logging-style sinks such as `logging.info`, `logger.debug`, `print`, `pprint.pprint`, or `warnings.warn`.
 
-## Overview
+## What It Does
 
-Logging is essential for debugging and observability, but accidentally logging secrets (e.g., passwords, API keys) can lead to serious security risks.
+- Runs Pysa against either the included benchmark suite or a target Python repository.
+- Generates Pysa models before each run based on the code being analyzed.
+- Reports possible secret-to-log flows in a terminal table.
+- Writes JSON result files under `results/`.
 
-This project uses **taint analysis** to detect flows where:
+## Project Layout
 
-- **Sensitive data (sources)** flows into --> **Logging functions (sinks)**
-
----
-
-## Project Structure
-
+```text
+.
+├── run-analysis.py              
+├── generate_models.py          
+├── requirements.txt             
+├── Dockerfile                   
+├── pysa/
+│   ├── taint.config             
+│   └── models/
+│       ├── base_models.pysa    
+│       ├── generated_models.pysa 
+│       └── models.pysa          
+├── benchmarks/
+│   ├── cases/                   
+│   └── expected.yaml            
+├── example_repos/               
+├── results/                     
+└── _legacy/                     
 ```
-TODO REDO
+
+## Requirements
+
+- Python 3.10 is recommended
+- `pip`
+
+
+## Docker Usage
+
+Build the image:
+
+```bash
+docker build -t secret-log-checker .
 ```
 
-## Benchmarks
+Run TUI interface:
 
-TODO REDO
-
-## Setup Instructions
-
-Prerequisites
-
-- Python 3.9 – 3.12 (recommended: 3.10)
-- pip
-
-1. Clone the repo
-1. Create virtual environment
-   1. `python3 -m venv .venv`
-   1. `source .venv/bin/activate`
-1. Install dependencies
-   1. `pip install --upgrade pip`
-   1. `pip install -r requirements.txt`
-1. Run the analysis
-   1. TODO: change to differnt options
-
-## Model Pipeline
-
-TODO: update / refactor
-
-<!--
-`generate_models.py` now manages a three-step model pipeline:
-
-1. Stable hand-written models live in `stubs/taint_templates/secrets_to_logs/base_models.pysa`
-2. Auto-discovered models are written to `stubs/taint_templates/secrets_to_logs/generated_models.pysa`
-3. Both are merged into `stubs/taint/secrets_to_logs/models.pysa` (the single file Pysa reads)
-
-The generator scans `app/` and `benchmarks/` for suspicious function names. If a function name contains one of these keywords, its return value is modeled as a secret source:
-
-- `secret`
-- `token`
-- `password`
-- `passwd`
-- `api_key`
-- `credential`
-- `private_key`
-
-Sanitizer-like names (`mask`, `redact`, `hash`, `sanitize`, `anonymize`, `scrub`) are also modeled automatically.
-
-`run-analysis.py` calls `generate_models.py` automatically before `pyre analyze`. -->
-
-### Output format
-
-TODO:
-if user runs "python run-analysis.py --benchmark-cases" we want output like this:
-
+```bash
+docker run --rm -it secret-log-checker tui.py
 ```
+
+## Local Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+## Usage
+
+Run the included benchmark cases.
+The tool runs the benchmark cases by default.
+
+```bash
+python run-analysis.py --benchmark-cases
+```
+
+Analyze another Python repository:
+
+```bash
+python run-analysis.py --repo /path/to/python/repo
+```
+
+OR use the handy TUI interface
+
+```bash
+python tui.py
+```
+
+
+## Output
+
+Benchmark mode prints a summary table grouped by case category:
+
+```text
 Static Secret-to-Log Checker Evaluation
-======================================
+=======================================
 
-Dataset: Synthetic Benchmark
+Dataset: Benchmark Cases
 
-+----------------------+-------+-------+-------+-----------+--------+------+
-| Category             | Cases | TP    | FP    | Precision | Recall | F1   |
-+----------------------+-------+-------+-------+-----------+--------+------+
-| Direct leaks         | 10    | 10    | 0     | 1.00      | 1.00   | 1.00 |
-| String formatting    | 8     | 7     | 1     | 0.88      | 0.88   | 0.88 |
-| Cross-function flows | 8     | 6     | 0     | 1.00      | 0.75   | 0.86 |
-| Sanitized cases      | 10    | 0     | 1     | -         | -      | -    |
-+----------------------+-------+-------+-------+-----------+--------+------+
-
-Overall:
-  True Positives: 23
-  False Positives: 2
-  False Negatives: 3
-  True Negatives: 22
-  Precision: 0.92
-  Recall:    0.88
-  F1:        0.90
++----------------------+-------+----+----+-----------+--------+------+
+| Category             | Cases | TP | FP | Precision | Recall | F1   |
++----------------------+-------+----+----+-----------+--------+------+
+| Direct leaks         | ...   | .. | .. | ...       | ...    | ...  |
+| String formatting    | ...   | .. | .. | ...       | ...    | ...  |
+| Cross-function flows | ...   | .. | .. | ...       | ...    | ...  |
+| Sanitized cases      | ...   | .. | .. | ...       | ...    | ...  |
++----------------------+-------+----+----+-----------+--------+------+
 ```
 
-<!--
-Precision = TP / (TP + FP)
-Recall    = TP / (TP + FN)
-F1        = 2 * Precision * Recall / (Precision + Recall)
--->
+Repository mode prints each possible issue:
 
-TODO:
-if user runs "python run-analysis.py --repo /path/to/own/repo" we want output like this:
-
-```
+```text
 Static Secret-to-Log Checker Report
 ===================================
 
-Target repository: /path/to/own/repo
+Target repository: /path/to/python/repo
 
-+------------------------------+------+------------------+------------------+
-| File                         | Line | Source           | Sink             |
-+------------------------------+------+------------------+------------------+
-| app/auth.py                  | 42   | os.getenv        | logging.info     |
-| services/payments.py         | 88   | get_secret       | logger.debug     |
-| config_loader.py             | 31   | settings.SECRET  | app.logger.error |
-+------------------------------+------+------------------+------------------+
++----------+------+--------+--------------+
+| File     | Line | Source | Sink         |
++----------+------+--------+--------------+
+| app.py   | 12   | token  | logging.info |
++----------+------+--------+--------------+
 
-Total Possible Issues: 3
-
+Total Possible Issues: 1
 ```
+
+Each run also saves a JSON file in `results/`
+
+## Model Generation
+
+`run-analysis.py` calls `generate_models.py` before running Pysa.
+
+The generator scans Python files and writes `pysa/models/generated_models.pysa`, then merges it with `pysa/models/base_models.pysa` into `pysa/models/models.pysa`.
+
+Generated source models include:
+
+- Functions with suspicious names such as `secret`, `token`, `password`, `passwd`, `api_key`, `credential`, `private_key`, or `config`.
+- Global variables and attributes with suspicious names.
+- Functions that return sensitive values from request-like mappings.
+- Mapping accesses for sensitive keys such as `password`, `token`, `secret`, `api_key`, and `credential`.
+
+Generated sanitizer models include simple masking, redaction, hashing, `len(...)`, and `bool(...)` patterns when the function consistently returns only the sanitized form.
+
+## Benchmark Suite
+
+The benchmark cases live in `benchmarks/cases/` and are grouped into:
+
+- Direct leaks
+- String formatting leaks
+- Cross-function flows
+- Sanitized cases
+
+Expected classifications are defined in `benchmarks/expected.yaml`.
+
+## Notes
