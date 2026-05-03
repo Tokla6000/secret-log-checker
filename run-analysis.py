@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -8,7 +9,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from generate_models import main as generate_models
+from generate_models import SKIP_DIR_NAMES, main as generate_models
 
 
 def parse_args() -> argparse.Namespace:
@@ -168,11 +169,17 @@ def analysis_roots_for(repo_path: Path) -> list[Path]:
     child_roots = [
         child
         for child in sorted(repo_path.iterdir())
-        if child.is_dir() and any(child.rglob("*.py"))
+        if child.is_dir()
+        and child.name not in SKIP_DIR_NAMES
+        and any(child.rglob("*.py"))
     ]
     if any(not child.name.isidentifier() for child in child_roots):
         return child_roots
     return [repo_path]
+
+
+def build_pyre_excludes() -> list[str]:
+    return [rf"(^|.*/){re.escape(name)}/.*" for name in sorted(SKIP_DIR_NAMES)]
 
 
 def load_taint_output_issues(path: Path) -> list[dict[str, object]]:
@@ -307,6 +314,7 @@ def run_repo_analysis(pyre_executable: Path, repo_path: Path, source_roots: list
                 for root in source_roots
             ],
             "taint_models_path": str(models_path),
+            "excludes": build_pyre_excludes(),
         }
         config_path.write_text(json.dumps(config, indent=2) + "\n")
         created_config = True
