@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -17,6 +18,39 @@ ROOT_DIR = Path(__file__).resolve().parent
 RUN_ANALYSIS = ROOT_DIR / "run-analysis.py"
 TITLE = "Secret Log Checker Python"
 FOOTER = "tool by group 1: { oleksandr, tokla, yanlin }"
+MAX_PATH_SUGGESTIONS = 5
+
+
+def path_completion_parts(value: str) -> tuple[str, Path, str]:
+    raw_value = value.strip()
+    if not raw_value:
+        return "", ROOT_DIR, ""
+
+    expanded = Path(raw_value).expanduser()
+    if raw_value.endswith(os.sep):
+        return raw_value, expanded, ""
+
+    prefix = expanded.name
+    base_path = expanded.parent
+    base_display = raw_value[: len(raw_value) - len(Path(raw_value).name)]
+    return base_display, base_path, prefix
+
+
+def matching_directories(value: str) -> tuple[str, list[str]]:
+    base_display, base_path, prefix = path_completion_parts(value)
+    try:
+        children = [child for child in base_path.iterdir() if child.is_dir()]
+    except OSError:
+        return base_display, []
+
+    include_hidden = prefix.startswith(".")
+    matches = [
+        child.name
+        for child in children
+        if child.name.startswith(prefix) and (include_hidden or not child.name.startswith("."))
+    ]
+    matches.sort(key=str.lower)
+    return base_display, matches
 
 
 class TextMenu(Static, can_focus=True):
@@ -117,6 +151,7 @@ class MainScreen(Screen[None]):
 
 class RepoScreen(Screen[None]):
     BINDINGS = [
+        ("tab", "complete_path", "Complete path"),
         ("escape", "back", "Back"),
     ]
 
@@ -125,6 +160,7 @@ class RepoScreen(Screen[None]):
             yield Static(TITLE, id="title")
             yield Static("repo path:", classes="label")
             yield Input(placeholder="/path/to/repo", id="repo_path")
+            yield Static("", id="repo_suggestions")
             yield Static("", id="repo_error")
             yield TextMenu(["run analysis", "go back"], id="repo_menu")
             yield Static(FOOTER, classes="footer")
@@ -138,6 +174,28 @@ class RepoScreen(Screen[None]):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "repo_path":
             self.start_repo_analysis()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == "repo_path":
+            self.update_path_suggestions()
+
+    def action_complete_path(self) -> None:
+        path_input = self.query_one("#repo_path", Input)
+        base_display, matches = matching_directories(path_input.value)
+        if not matches:
+            self.update_path_suggestions("no matching directories")
+            return
+
+        _, _, prefix = path_completion_parts(path_input.value)
+        common_prefix = os.path.commonprefix(matches)
+        if common_prefix and common_prefix != prefix:
+            path_input.value = base_display + common_prefix
+            path_input.cursor_position = len(path_input.value)
+        elif len(matches) == 1:
+            path_input.value = base_display + matches[0] + os.sep
+            path_input.cursor_position = len(path_input.value)
+
+        self.update_path_suggestions()
 
     @on(TextMenu.Selected)
     def on_repo_menu_selected(self, event: TextMenu.Selected) -> None:
@@ -154,6 +212,24 @@ class RepoScreen(Screen[None]):
             return
         error.update("")
         self.app.push_screen(OutputScreen(["--repo", repo_path], "analyse external repo"))
+
+    def update_path_suggestions(self, message: str | None = None) -> None:
+        suggestions = self.query_one("#repo_suggestions", Static)
+        if message is not None:
+            suggestions.update(message)
+            return
+
+        path_input = self.query_one("#repo_path", Input)
+        base_display, matches = matching_directories(path_input.value)
+        if not matches:
+            suggestions.update("")
+            return
+
+        visible_matches = matches[:MAX_PATH_SUGGESTIONS]
+        rendered_matches = "  ".join(base_display + match + os.sep for match in visible_matches)
+        if len(matches) > MAX_PATH_SUGGESTIONS:
+            rendered_matches += f"  (+{len(matches) - MAX_PATH_SUGGESTIONS} more)"
+        suggestions.update(rendered_matches)
 
 
 class AboutScreen(Screen[None]):
@@ -320,6 +396,12 @@ class SecretLogCheckerTUI(App[None]):
     #repo_error {
         color: #e88c8c;
         height: 1;
+    }
+
+    #repo_suggestions {
+        color: #7d7d7d;
+        height: 1;
+        margin-bottom: 1;
     }
 
     #about_body {
