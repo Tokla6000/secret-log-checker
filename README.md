@@ -28,9 +28,8 @@ The checker models values such as passwords, tokens, API keys, credentials, and 
 ├── benchmarks/
 │   ├── cases/                   
 │   └── expected.yaml            
-├── example_repos/               
-├── results/                     
-└── _legacy/                     
+├── example_repos/                           
+└── results/                     
 ```
 
 ## Requirements
