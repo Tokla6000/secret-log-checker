@@ -22,15 +22,6 @@ SOURCE_EXCLUDED_HINTS = (
     "safe",
 )
 
-SANITIZER_KEYWORDS = (
-    "mask",
-    "redact",
-    "hash",
-    "sanitize",
-    "anonymize",
-    "scrub",
-)
-
 INPUT_NAME_TOKENS = {
     "args",
     "body",
@@ -152,11 +143,6 @@ def is_suspicious(name: str) -> bool:
     return any(keyword in lowered_name for keyword in SOURCE_KEYWORDS) and not any(
         excluded_hint in lowered_name for excluded_hint in SOURCE_EXCLUDED_HINTS
     )
-
-
-def is_sanitizer(name: str) -> bool:
-    lowered_name = name.lower()
-    return any(keyword in lowered_name for keyword in SANITIZER_KEYWORDS)
 
 
 def is_sensitive_key(value: str) -> bool:
@@ -576,6 +562,136 @@ def function_returns_input_sensitive(
     return returns_sensitive
 
 
+HASHLIB_DIGESTS = {
+    "blake2b",
+    "blake2s",
+    "md5",
+    "sha1",
+    "sha224",
+    "sha256",
+    "sha384",
+    "sha3_224",
+    "sha3_256",
+    "sha3_384",
+    "sha3_512",
+    "sha512",
+    "shake_128",
+    "shake_256",
+}
+
+
+def first_data_parameter(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
+    for argument in [*node.args.posonlyargs, *node.args.args]:
+        if argument.arg not in {"self", "cls"}:
+            return argument.arg
+    return None
+
+
+def is_hashlib_digest_call(expr: ast.AST) -> bool:
+    if not (
+        isinstance(expr, ast.Call)
+        and isinstance(expr.func, ast.Attribute)
+        and expr.func.attr in {"digest", "hexdigest"}
+    ):
+        return False
+
+    digest_target = expr.func.value
+    if not (
+        isinstance(digest_target, ast.Call)
+        and isinstance(digest_target.func, ast.Attribute)
+        and digest_target.func.attr in HASHLIB_DIGESTS
+    ):
+        return False
+
+    return isinstance(digest_target.func.value, ast.Name) and digest_target.func.value.id == "hashlib"
+
+
+def contains_name(expr: ast.AST, name: str) -> bool:
+    return any(isinstance(node, ast.Name) and node.id == name for node in ast.walk(expr))
+
+
+def is_mask_literal(value: str) -> bool:
+    return bool(value) and set(value).issubset({"*", "x", "X", "#", ".", "-", "_"})
+
+
+def is_redaction_literal(value: str) -> bool:
+    lowered = value.lower()
+    return any(word in lowered for word in ("redacted", "masked", "scrubbed"))
+
+
+def is_masked_slice(expr: ast.AST, parameter_name: str) -> bool:
+    if not (
+        isinstance(expr, ast.Subscript)
+        and isinstance(expr.value, ast.Name)
+        and expr.value.id == parameter_name
+        and isinstance(expr.slice, ast.Slice)
+    ):
+        return False
+
+    lower = expr.slice.lower
+    upper = expr.slice.upper
+    return isinstance(lower, ast.Constant) or isinstance(upper, ast.Constant)
+
+
+def is_masking_expression(expr: ast.AST, parameter_name: str) -> bool:
+    saw_mask = False
+    saw_parameter_slice = False
+
+    def walk_expression(node: ast.AST) -> bool:
+        nonlocal saw_mask, saw_parameter_slice
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            return walk_expression(node.left) and walk_expression(node.right)
+        if isinstance(node, ast.JoinedStr):
+            return all(walk_expression(value) for value in node.values)
+        if isinstance(node, ast.FormattedValue):
+            return walk_expression(node.value)
+        literal = extract_string_literal(node)
+        if literal is not None:
+            if is_mask_literal(literal):
+                saw_mask = True
+            return True
+        if is_masked_slice(node, parameter_name):
+            saw_parameter_slice = True
+            return True
+        return False
+
+    return walk_expression(expr) and saw_mask and saw_parameter_slice
+
+
+def is_known_sanitized_expression(expr: ast.AST | None, parameter_name: str) -> bool:
+    if expr is None:
+        return False
+    if is_hashlib_digest_call(expr) and contains_name(expr, parameter_name):
+        return True
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return is_redaction_literal(expr.value)
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name):
+        return (
+            expr.func.id in {"bool", "len"}
+            and len(expr.args) == 1
+            and contains_name(expr.args[0], parameter_name)
+        )
+    if is_masking_expression(expr, parameter_name):
+        return True
+    return False
+
+
+def function_returns_known_sanitizer(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    parameter_name = first_data_parameter(node)
+    if parameter_name is None:
+        return False
+
+    returns: list[ast.Return] = [
+        statement for statement in ast.walk(node) if isinstance(statement, ast.Return)
+    ]
+    if not returns:
+        return False
+    return all(
+        is_known_sanitized_expression(statement.value, parameter_name)
+        for statement in returns
+    )
+
+
 def build_sanitizer_parameters(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     args = node.args
     positional = [*args.posonlyargs, *args.args]
@@ -698,7 +814,7 @@ def collect_function_models(
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 qualified_name = ".".join((module_name, *class_prefix, node.name))
 
-                if is_sanitizer(node.name):
+                if function_returns_known_sanitizer(node):
                     parameters = build_sanitizer_parameters(node)
                     sanitizer_models.append(
                         f"def {qualified_name}({parameters}) -> Sanitize[TaintSource[Secret]]: ..."
