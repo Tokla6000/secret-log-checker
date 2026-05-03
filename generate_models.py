@@ -14,6 +14,7 @@ SOURCE_KEYWORDS = (
     "api_key",
     "credential",
     "private_key",
+    "config",
 )
 
 SOURCE_EXCLUDED_HINTS = (
@@ -89,6 +90,39 @@ SKIP_DIR_NAMES = {
     "venv",
 }
 
+def collect_attribute_models(tree: ast.AST, module_name: str) -> list[str]:
+    attribute_models: list[str] = []
+
+    def visit_body(body: Iterable[ast.stmt], class_prefix: tuple[str, ...] = ()) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                class_name = ".".join((module_name, *class_prefix, node.name))
+
+                for stmt in ast.walk(node):
+                    if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                        targets = []
+                        if isinstance(stmt, ast.Assign):
+                            targets = list(stmt.targets)
+                        elif isinstance(stmt, ast.AnnAssign):
+                            targets = [stmt.target]
+
+                        for target in targets:
+                            if (
+                                isinstance(target, ast.Attribute)
+                                and isinstance(target.value, ast.Name)
+                                and target.value.id == "self"
+                                and is_suspicious(target.attr)
+                            ):
+                                attribute_models.append(
+                                    f"{class_name}.{target.attr}: TaintSource[Secret]"
+                                )
+
+                visit_body(node.body, class_prefix + (node.name,))
+
+    if isinstance(tree, ast.Module):
+        visit_body(tree.body)
+
+    return attribute_models
 
 def module_name_from_path(path: Path, root: Path, module_prefix: str = "") -> str:
     relative_path = path.relative_to(root).with_suffix("")
@@ -750,6 +784,11 @@ def scan_roots(roots: Iterable[Path]) -> tuple[list[str], list[str], list[str], 
                 module_env,
             )
             global_models = collect_global_models(tree, module_name)
+            attribute_models = collect_attribute_models(tree, module_name)
+            
+            for model in attribute_models:
+                generated_global_models.add(model)
+            
             global_input_sources = collect_global_input_source_names(
                 tree,
                 module_env,
